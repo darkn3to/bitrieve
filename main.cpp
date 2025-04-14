@@ -1,7 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <ext2fs/ext2fs.h>
-#include <sys/statvfs.h>
+#include <iomanip>
 
 using namespace std;
 
@@ -24,25 +24,31 @@ void log(ext2_filsys &fs) {
     outfile << "s_magic: " << hex << fs->super->s_magic << "\n";
     outfile << "s_state: " << fs->super->s_state << "\n";
     outfile << "s_errors: " << fs->super->s_errors << "\n";
-    outfile << "s_minor_rev_level: " << fs->super->s_minor_rev_level << "\n";
+    //outfile << "s_minor_rev_level: " << fs->super->s_minor_rev_level << "\n";
     outfile << "s_lastcheck: " << fs->super->s_lastcheck << "\n";
     outfile << "s_checkinterval: " << fs->super->s_checkinterval << "\n";
     outfile << "s_creator_os: " << fs->super->s_creator_os << "\n";
     outfile << "s_rev_level: " << fs->super->s_rev_level << "\n";
-    outfile << "s_def_resuid: " << fs->super->s_def_resuid << "\n";
-    outfile << "s_def_resgid: " << fs->super->s_def_resgid << "\n";
     outfile << "s_first_ino: " << fs->super->s_first_ino << "\n";
     outfile << "s_inode_size: " << fs->super->s_inode_size << "\n";
     outfile << "s_block_group_nr: " << fs->super->s_block_group_nr << "\n";
-    outfile << "s_feature_compat: " << fs->super->s_feature_compat << "\n";
-    outfile << "s_feature_incompat: " << fs->super->s_feature_incompat << "\n";
-    outfile << "s_feature_ro_compat: " << fs->super->s_feature_ro_compat << "\n";
-    outfile << "s_uuid: " << fs->super->s_uuid << "\n";
+    //outfile << "s_feature_compat: " << fs->super->s_feature_compat << "\n";
+    //outfile << "s_feature_incompat: " << fs->super->s_feature_incompat << "\n";
+    //outfile << "s_feature_ro_compat: " << fs->super->s_feature_ro_compat << "\n";
+    outfile << "s_uuid: ";
+    for (int i = 0; i < 16; ++i) outfile << hex << setw(2) << setfill('0') << (int)fs->super->s_uuid[i];
+    outfile << "\n";
     outfile << "s_volume_name: " << fs->super->s_volume_name << "\n";
     outfile << "s_last_mounted: " << fs->super->s_last_mounted << "\n";
     outfile << "s_algorithm_usage_bitmap: " << fs->super->s_algorithm_usage_bitmap << "\n";
     outfile << "s_prealloc_blocks: " << fs->super->s_prealloc_blocks << "\n";
     outfile << "s_prealloc_dir_blocks: " << fs->super->s_prealloc_dir_blocks << "\n";
+}
+
+int print_blocks(ext2_filsys fs, blk_t *blocknr, e2_blkcnt_t blockcnt, blk_t ref_blk, int ref_offset, void *priv_data) {
+    ofstream *out = static_cast<ofstream *>(priv_data);
+    if (*blocknr) *out << *blocknr << " ";
+    return 0;
 }
 
 int main(int argc, char **argv) {
@@ -65,15 +71,40 @@ int main(int argc, char **argv) {
     if (errcode) {
         cout << "Error reading inode bitmap. Error code: " << errcode << endl;
     }
-    int c=0;
-    for (ext2_ino_t it = 1; it < fs->super->s_inodes_count; it++) {
+
+    //int c=0;
+    
+    ofstream blocklog("blocklog.txt");
+
+    for (ext2_ino_t it = 11; it <= fs->super->s_inodes_count; it++) {   // inodes 1-10 are reserved.
         if (ext2fs_test_inode_bitmap(fs->inode_map, it)) {
             //cout << "Inode " << it << " is used" << endl;
-            ++c;
+            //++c;
+            /*blk_t *blocks;
+            errcode = ext2fs_get_blocks(fs, ino, blocks);
+            if (errcode) {
+                cout << "Error getting blocks for inode " << it << ". Error code: " << errcode << endl;
+            } 
+            else {
+                cout << "Inode " << it << " is used. Blocks: ";
+                for (int i = 0; i < fs->inode_map->fs->super->s_blocks_count; ++i) {
+                    cout << blocks[i] << " ";
+                }
+                cout << endl;
+            }*/
+            blocklog << "Inode " << it << "\'s blocks: ";
+            ext2_inode inode;
+
+            errcode = ext2fs_block_iterate2(fs, it, BLOCK_FLAG_DATA_ONLY, nullptr,
+                                            print_blocks, &blocklog);
+            if (errcode) {
+                cout << "Error iterating blocks for inode " << it << ": " << errcode << endl;
+            }
+            blocklog << endl;
         }
     }
 
-    cout << c << " inodes are used." << endl;
+    //cout << c << " inodes are used." << endl;
 
     return 0;
 }

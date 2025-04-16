@@ -2,8 +2,16 @@
 #include <fstream>
 #include <ext2fs/ext2fs.h>
 #include <iomanip>
+#include <vector>
+#include <filesystem>
 
 using namespace std;
+
+namespace fs = std::filesystem;
+
+struct journal_superblock {
+
+};
 
 void log(ext2_filsys &fs) {
     ofstream outfile("superblock.txt");
@@ -45,66 +53,207 @@ void log(ext2_filsys &fs) {
     outfile << "s_prealloc_dir_blocks: " << fs->super->s_prealloc_dir_blocks << "\n";
 }
 
+void read_block_data(ext2_filsys fs, blk_t block, int block_size, void *priv_data) {
+    char *buf = (char *)malloc(block_size);
+    ofstream *out = static_cast<ofstream *>(priv_data);
+    if (!buf) {
+        *out << "Memory allocation failed\n";
+        return;
+    }
+
+    errcode_t err = io_channel_read_blk(fs->io, block, 1, buf);
+    
+    if (err) {
+        *out << "Error reading block " << block << ": " << err << "\n";
+        free(buf);
+        return;
+    }
+    else {
+        int offset = 0;
+        while (offset + sizeof(struct ext2_dir_entry) <= block_size) {  
+            struct ext2_dir_entry *dir = (struct ext2_dir_entry *)(buf + offset);
+        
+            if (dir->rec_len < 8 || dir->rec_len + offset > block_size) {
+                cout << "Invalid dir entry at offset " << offset << ", rec_len: " << dir->rec_len << endl;
+                break;
+            }
+        
+            uint8_t name_len = dir->name_len;
+            if (name_len > EXT2_NAME_LEN) {
+                cout << "[Possibly deleted] entry with invalid name_len: " << (int)name_len << "\n";
+                break;
+            }
+        
+            if (dir->inode == 0) {
+                if (name_len > 0) {
+                    char name[EXT2_NAME_LEN + 1] = {0};
+                    memcpy(name, dir->name, name_len);
+                    name[name_len] = '\0';
+                    cout << "[Possibly deleted] name: " << name << " (rec_len: " << dir->rec_len << ")\n";
+                } else {
+                    cout << "[Possibly deleted] entry with no valid name\n";
+                }
+            } else {
+                char name[EXT2_NAME_LEN + 1] = {0};
+                memcpy(name, dir->name, name_len);
+                name[name_len] = '\0';
+                cout << "Directory Entry: " << name
+                     << " (Inode: " << dir->inode
+                     << ", Rec_len: " << dir->rec_len << ")\n";
+            }
+        
+            offset += dir->rec_len;
+        }
+        
+    }
+
+    free(buf);
+}
+
+
 int print_blocks(ext2_filsys fs, blk_t *blocknr, e2_blkcnt_t blockcnt, blk_t ref_blk, int ref_offset, void *priv_data) {
     ofstream *out = static_cast<ofstream *>(priv_data);
-    if (*blocknr) *out << *blocknr << " ";
+    if (*blocknr) {
+        *out << *blocknr << " ";
+        /*int block_size = EXT2_BLOCK_SIZE(fs->super);
+        read_block_data(fs, *blocknr, block_size, priv_data);  */
+    }
     return 0;
+}
+
+int print_inode(ext2_filsys fs, ext2_ino_t ino, ofstream &blocklog) {
+    int retval = 0;
+    errcode_t errcode;
+    struct ext2_inode *inode;
+
+    // Allocate memory for the inode structure
+    inode = (struct ext2_inode *)operator new(EXT2_INODE_SIZE(fs->super));
+    if (!inode) {
+        cerr << "Memory allocation failed for inode structure." << endl;
+        return ENOMEM;
+    }
+
+    // Read the inode data
+    errcode = ext2fs_read_inode_full(fs, ino, inode, EXT2_INODE_SIZE(fs->super));
+    if (errcode) {
+        cerr << "Error reading inode " << ino << ": " << (errcode) << endl;
+        retval = errcode;
+        goto finally;
+    }
+
+    // Log inode information
+    blocklog << "Contents of inode " << ino << ":\n";
+    blocklog << "Mode: " << inode->i_mode << "\n";
+    blocklog << "Size: " << inode->i_size << "\n";
+    blocklog << "Blocks: " << inode->i_blocks << "\n";
+    blocklog << "Links: " << inode->i_links_count << "\n";
+
+    // Check if the inode is allocated or unallocated
+    if (ext2fs_test_inode_bitmap(fs->inode_map, ino)) {
+        blocklog << "Inode is Allocated\n";
+    } else {
+        blocklog << "Inode is Unallocated\n";
+    }
+
+    if (inode->i_dtime != 0) {
+        blocklog << "Inode is Deleted file\n";
+    } else {
+        blocklog << "Inode is Active file\n";
+    }
+
+    // Check if the inode is a directory and if it is deleted
+    if ((inode->i_mode & LINUX_S_IFMT) == LINUX_S_IFDIR) {
+        if (inode->i_dtime != 0) {
+            blocklog << "Inode " << ino << " is a deleted directory.\n";
+        } else {
+            blocklog << "Inode " << ino << " is an active directory.\n";
+        }
+    }
+
+finally:
+    // Free the allocated memory
+    delete inode;
+    return retval;
+}
+
+void create_snapshot(ext2_filsys fs) {
+    string path;
+    bool valid_path = false;
+    do {
+        cout << "Please provide a target path: ";
+        cin >> path;
+
+        if (fs::exists(path)) {
+            cout << "Path exists. " << endl;
+            valid_path = true;
+        }
+        else {
+            cout << "Path doesn't exist. " << endl;
+        }
+    } while(!valid_path);
+
+    unsigned depth;
+    do {
+        cout << "Please provide max-depth of directory traversal: ";
+        cin >> depth;
+        if (depth < 1 || depth > 10) {
+            cout << "Depth is invalid. Please enter a value between 1 - 10." << endl;
+        }
+    } while (depth < 1 || depth > 10);
+
+    string command = "find \"" + path + "\" -maxdepth " + to_string(depth) + " -type f -exec stat --format='%i %n' {} \\; | sort -n > inode_names.txt";
+    system(command.c_str());
+    return;
+
+    ofstream snapshot("snapshot.txt");
+
+    errcode_t errcode;
+    errcode = ext2fs_read_inode_bitmap(fs);
+    if (errcode) {
+        cout << "Error reading inode bitmap. Error code: " << errcode << endl;
+    }
+    for (ext2_ino_t it = 11; it <= fs->super->s_inodes_count; it++) {  
+        struct ext2_inode inode;
+        errcode = ext2fs_read_inode(fs, it, &inode);
+        if ((inode.i_mode & LINUX_S_IFMT) == LINUX_S_IFREG) {
+            if (ext2fs_test_inode_bitmap(fs->inode_map, it)) {
+                snapshot << "inode: " << it << "\n";
+                snapshot << "size: " << inode.i_size << "\n";
+                snapshot << "blocks: ";
+                errcode = ext2fs_block_iterate2(fs, it, BLOCK_FLAG_DATA_ONLY, nullptr,
+                    print_blocks, &snapshot);
+                if (errcode) {
+                    cout << "Error iterating blocks for inode " << it << ": " << errcode << endl;
+                }
+                snapshot << "\n\n";
+            }
+            
+        }
+        //print_inode(fs, it, snapshot);
+       
+    }
+}
+
+void recover_files(ext2_filsys fs, const char *snapshot_file, const char *file_name) {
+    ifstream snapshot(snapshot_file);
+    if (!snapshot.is_open()) {
+        cout << "Snapshot file: " << snapshot_file  << " does not exist." << endl;
+        return;
+    }
+
+    
 }
 
 int main(int argc, char **argv) {
     ext2_filsys fs;
-    const char *device_partition = "/dev/sda8";
+    const char *device_partition = "/dev/sda9";
 
     errcode_t errcode;
 
     errcode = ext2fs_open(device_partition, 0, 0, 0, unix_io_manager, &fs);
 
-    if (errcode) {
-        cout << "Error opening filesystem: " << errcode << endl;
-        return 1;
-    }
-    
-    log(fs);
-    
-    errcode = ext2fs_read_inode_bitmap(fs);
-
-    if (errcode) {
-        cout << "Error reading inode bitmap. Error code: " << errcode << endl;
-    }
-
-    //int c=0;
-    
-    ofstream blocklog("blocklog.txt");
-
-    for (ext2_ino_t it = 11; it <= fs->super->s_inodes_count; it++) {   // inodes 1-10 are reserved.
-        if (ext2fs_test_inode_bitmap(fs->inode_map, it)) {
-            //cout << "Inode " << it << " is used" << endl;
-            //++c;
-            /*blk_t *blocks;
-            errcode = ext2fs_get_blocks(fs, ino, blocks);
-            if (errcode) {
-                cout << "Error getting blocks for inode " << it << ". Error code: " << errcode << endl;
-            } 
-            else {
-                cout << "Inode " << it << " is used. Blocks: ";
-                for (int i = 0; i < fs->inode_map->fs->super->s_blocks_count; ++i) {
-                    cout << blocks[i] << " ";
-                }
-                cout << endl;
-            }*/
-            blocklog << "Inode " << it << "\'s blocks: ";
-            ext2_inode inode;
-
-            errcode = ext2fs_block_iterate2(fs, it, BLOCK_FLAG_DATA_ONLY, nullptr,
-                                            print_blocks, &blocklog);
-            if (errcode) {
-                cout << "Error iterating blocks for inode " << it << ": " << errcode << endl;
-            }
-            blocklog << endl;
-        }
-    }
-
-    //cout << c << " inodes are used." << endl;
+    create_snapshot(fs);
+    //recover_files(fs, "snapshot.txt");
 
     return 0;
 }

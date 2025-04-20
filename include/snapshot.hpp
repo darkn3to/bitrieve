@@ -1,6 +1,5 @@
 #pragma once
 #include <iostream>
-#include <fstream>
 #include <filesystem>
 #include <ext2fs/ext2fs.h>
 #include <cstdlib>
@@ -10,7 +9,7 @@
 
 using namespace std;
 
-namespace fs = filesystem;
+namespace fs2 = filesystem;
 
 inline int print_blocks(ext2_filsys fs, blk_t *blocknr, e2_blkcnt_t blockcnt, blk_t ref_blk, int ref_offset, void *priv_data) {
     ofstream *out = static_cast<ofstream *>(priv_data);
@@ -26,7 +25,7 @@ inline void create_snapshot(ext2_filsys fs) {
     do {
         cout << "Please provide a target path: ";
         cin >> path;
-        if (fs::exists(path)) {
+        if (fs2::exists(path)) {
             cout << "Path exists.\n";
             valid_path = true;
         } else {
@@ -47,11 +46,9 @@ inline void create_snapshot(ext2_filsys fs) {
     system(command.c_str());
 
     ifstream inode_names("inode_names.txt");
+
     string line;
     ext2_inode inode;
-
-    ofstream test("test.txt");
-    ofstream test2("test2.txt");
 
     while (getline(inode_names, line)) {
         size_t space = line.find(' ');
@@ -65,14 +62,22 @@ inline void create_snapshot(ext2_filsys fs) {
                 test << "Extent depth: " << hdr.eh_depth << endl;
                 test << "Extent entries: " << hdr.eh_entries << endl;
                 test << "Extent max entries: " << hdr.eh_max << endl;
-                test << "Extent generation: " << hdr.eh_generation << endl;*/
-                
+                test << "Extent generation: " << hdr.eh_generation << endl;
+                test << endl;*/
+            
 
                 if (hdr.eh_depth == 0) {
-                    read_extents(&inode.i_block[3], hdr.eh_entries, test2);
+                    read_extents(&inode.i_block[3], hdr.eh_entries, fs->blocksize);
+                    snapshot << line << " " << inode.i_size;
+                    for (auto it:chunks) {
+                        snapshot << " [" << it.addr << ", " << it.len << "]" << " ";
+                    }
+                    snapshot << endl;
+                    chunks.clear();
                 }
                 else {
-                    read_extent_idx();
+                    //test3 << line.substr(0, space) << " uses extents." << endl;
+                    read_extent_idx(&inode.i_block[3], hdr.eh_entries, fs->blocksize);
                 }
             } 
             else { // handle it the ext2/ext3 way. future work.

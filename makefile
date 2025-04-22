@@ -13,7 +13,7 @@ all: clean $(TARGET)
 $(TARGET): $(OBJ)
 	$(CXX) $(OBJ) -o $(TARGET) -lext2fs
 
-%.o: %.cpp include/extents.hpp include/snapshot.hpp
+%.o: %.cpp include/globals.hpp include/extents.hpp include/snapshot.hpp include/recover.hpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:

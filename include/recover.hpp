@@ -2,6 +2,11 @@
 #include <iostream>
 #include <stdbool.h>
 #include "globals.hpp"
+#include <filesystem>
+
+#define BUFFER_SIZE 65536 // 64 KB buffer for re-writing files.
+
+namespace fs2 = filesystem;
 
 struct cRecord {
     unsigned int inode_num;
@@ -83,11 +88,90 @@ bool check_file_path(const string& path) {
 }
 
 
-void get_used_blocks(ext2_filsys fs) {
+void get_overwritten_blocks(ext2_filsys &fs) {
+    for (unsigned int i = 0; i < record.extent_count; i++) {
+        uint64_t start = record.addr[i]/fs->blocksize;
+        uint64_t lenstart = record.len[i]/fs->blocksize;
+        for (uint64_t j = 0; j < lenstart; j++) {
+            blk_t blk = start + j;
+            int used = ext2fs_test_block_bitmap(fs->block_map, blk);
+            if (used < 0) {
+                cerr << "Bitmap test error on block " << blk
+                << ": " << used << "\n";
+                continue;
+            }
+            if (used) {
+                cout << YELLOW << "Block is overwritten: " << blk << "\n" << RESET;
+            }
+        }
+    } 
+}
+
+void print_fs_vitals(ext2_filsys fs) {
+    cout << GREEN << "Filesystem Vitals:\n" << RESET;
+    cout << "Block Size: " << fs->blocksize << " bytes\n";
+    cout << "Total Blocks: " << fs->super->s_blocks_count << "\n";
+    cout << "Free Blocks: " << fs->super->s_free_blocks_count << "\n";
+    cout << "Total Inodes: " << fs->super->s_inodes_count << "\n";
+    cout << "Free Inodes: " << fs->super->s_free_inodes_count << "\n";
+    cout << "First Data Block: " << fs->super->s_first_data_block << "\n";
+    cout << "Volume Name: " << fs->super->s_volume_name << "\n";
+}
+
+void write_file(ext2_filsys &fs, const string &output_path, const string &filename, const string &device) {
+    const string recovered_dir = output_path + "/recovered";
+    if (!fs2::exists(recovered_dir)) {
+        fs2::create_directories(recovered_dir);
+    }
+    const string full_file_path = recovered_dir + "/" + filename;
+
+    cout << endl << GREEN << "Writing file to: " 
+         << full_file_path << "\n" << RESET;
+
+    char buffer[BUFFER_SIZE];
+
+    ofstream out(full_file_path, ios::binary);
+    uint32_t bytes_written = 0, curr_extent_len = 0;
+    unsigned int i = 0;
+    int fd = open(device.c_str(), O_RDONLY);
+    while ((i < record.extent_count) && (bytes_written < record.size)) {
+        curr_extent_len = record.len[i];
+        size_t pos_in_extent = 0;
+    
+        while ((curr_extent_len > 0) && (bytes_written < record.size)) {
+            size_t to_read = std::min(static_cast<size_t>(BUFFER_SIZE),
+                          std::min(static_cast<size_t>(curr_extent_len),
+                                   static_cast<size_t>(record.size - bytes_written)));
+
+    
+            ssize_t bytes_read = pread(fd, buffer, to_read, record.addr[i] + pos_in_extent);
+            if (bytes_read <= 0) {
+                perror("pread");
+                break;  // optionally: return or throw
+            }
+    
+            out.write(buffer, bytes_read);
+            bytes_written += bytes_read;
+            pos_in_extent += bytes_read;
+            curr_extent_len -= bytes_read;
+        }
+    
+        ++i;
+    }
+    
+
 
 }
 
-void recover(const string& path, ext2_filsys fs) {
+const string extract_filename(const string &path) {
+    size_t last_slash = path.find_last_of("/\\");
+    if (last_slash == string::npos) {
+        return path; 
+    }
+    return path.substr(last_slash + 1);
+}
+
+void recover(const string& path, ext2_filsys &fs, const string & output_path, const string &device) {
     if (check_file_path(path)) {
         ext2_inode inode;
         ext2fs_read_inode(fs, record.inode_num, &inode);
@@ -96,7 +180,16 @@ void recover(const string& path, ext2_filsys fs) {
         }
         else {
             //recovery logic
-            //get_used_blocks(fs);
+            errcode_t err = ext2fs_read_block_bitmap(fs);
+            if (err) {
+                cerr << RED << "Failed to read block bitmap: " << err << "\n" << RESET;
+                return;
+            }
+
+
+            //print_fs_vitals(fs);
+            get_overwritten_blocks(fs);
+            write_file(fs, output_path, extract_filename(record.file_path), device);
         }
     }
     

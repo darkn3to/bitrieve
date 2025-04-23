@@ -9,7 +9,7 @@ using namespace std;
 
 namespace fs2 = filesystem;
 
-inline void create_snapshot(ext2_filsys fs, string path, unsigned int depth, const string &device)
+inline void create_snapshot(ext2_filsys &fs, string path, unsigned int depth, const string &device)
 {
     ofstream snapshot("snapshot.bin", ios::binary);
 

@@ -8,13 +8,13 @@ int main(int argc, char** argv) {
     if (argc < 4) {
         cerr << "Sufficient parameters not found. \nUsage:\n"
              << "  ./bitrieve create  -dev <device> -p <path> -d <depth>\n"
-             << "  ./bitrieve recover -dev <device> -p <path> -o <output>\n"
+             << "  ./bitrieve recover -dev <device> -p <path> -o <output_path>\n"
              << "  ./bitrieve ls      -dev <device>\n";
         return 1;
     }
 
     string command = argv[1];
-    string device, path;
+    string device, path, output;
     unsigned int depth = 0;
 
     for (int i = 2; i < argc; ++i) {
@@ -24,10 +24,25 @@ int main(int argc, char** argv) {
         } 
         else if (arg == "-p" && i + 1 < argc) {
             path = argv[++i];
+            if (path.empty()) {
+                cerr << "Error: -p <path> is required for recovery.\n";
+                return 1;
+            }
         } 
         else if (arg == "-d" && i + 1 < argc) {
             depth = stoi(argv[++i]);
+            if (depth < 1 || depth > 10) {
+                cout << "Depth is invalid. Please enter a value between 1 - 10." << endl;
+                return 1;
+            }
         } 
+        else if (arg == "-o" && i + 1 < argc) {
+            output = argv[++i]; 
+        } 
+        else {
+            cerr << "Unknown argument: " << arg << "\n";
+            return 1;
+        }
     }
 
     if (device.empty()) {
@@ -44,23 +59,14 @@ int main(int argc, char** argv) {
     }
 
     if (command == "create") {
-        if (path.empty()) {
-            cerr << "Error: path (-p) is required for create.\n";
-            return 1;
-        }
-        if (fs2::exists(path) && depth >= 1 && depth <= 10)
-            create_snapshot(fs, path, depth, device);
-        else if (depth < 1 || depth > 10) 
-            cout << "Depth is invalid. Please enter a value between 1 - 10." << endl;
-        else 
-            cout << "Path doesn't exist.\n";
+        create_snapshot(fs, path, depth, device);
     } 
     else if (command == "recover") {
-        if (path.empty()) {
-            cerr << "Error: -p <path> is required for recovery.\n";
+        if (output.empty()) {
+            cerr << "Error: -o <output_path> is required for recovery.\n";
             return 1;
         }
-        recover(path, fs);
+        recover(path, fs, output, device);
     } 
     else if (command == "ls") {
         //list_deleted_files(fs);

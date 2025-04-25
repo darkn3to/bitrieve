@@ -61,7 +61,7 @@ inline void create_snapshot(ext2_filsys &fs, string path, unsigned int depth, co
             snapshot.write(reinterpret_cast<const char *>(&path_len), sizeof(path_len));
             snapshot.write(path.c_str(), path_len);
 
-            uint32_t size = inode.i_size;
+            uint64_t size = ((uint64_t)inode.i_size_high << 32) | inode.i_size;
             snapshot.write(reinterpret_cast<const char *>(&size), sizeof(size));
 
             uint32_t extent_count = chunks.size();

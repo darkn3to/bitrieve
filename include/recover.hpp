@@ -54,7 +54,7 @@ bool check_file_path(const string& path) {
         verify.read(&record.file_path[0], path_len);
         record.file_path.erase(record.file_path.find_last_not_of(" \n\r\t") + 1);
 
-        verify.read(reinterpret_cast<char*>(&record.size), sizeof(uint32_t));
+        verify.read(reinterpret_cast<char*>(&record.size), sizeof(uint64_t));
         verify.read(reinterpret_cast<char*>(&record.extent_count), sizeof(uint32_t));
 
         // Allocate space

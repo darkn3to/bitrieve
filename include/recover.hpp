@@ -11,7 +11,8 @@ namespace fs2 = filesystem;
 struct cRecord {
     unsigned int inode_num;
     string file_path;
-    uint32_t size, extent_count;
+    uint64_t size;
+    uint32_t extent_count;
     uint64_t *addr, *len;
 };
 
@@ -54,7 +55,7 @@ bool check_file_path(const string& path) {
         verify.read(&record.file_path[0], path_len);
         record.file_path.erase(record.file_path.find_last_not_of(" \n\r\t") + 1);
 
-        verify.read(reinterpret_cast<char*>(&record.size), sizeof(uint64_t));
+        verify.read(reinterpret_cast<char*>(&record.size), sizeof(record.size));
         verify.read(reinterpret_cast<char*>(&record.extent_count), sizeof(uint32_t));
 
         // Allocate space
@@ -131,7 +132,7 @@ void write_file(ext2_filsys &fs, const string &output_path, const string &filena
     char buffer[BUFFER_SIZE];
 
     ofstream out(full_file_path, ios::binary);
-    uint32_t bytes_written = 0, curr_extent_len = 0;
+    uint64_t bytes_written = 0, curr_extent_len = 0;
     unsigned int i = 0;
     int fd = open(device.c_str(), O_RDONLY);
     while ((i < record.extent_count) && (bytes_written < record.size)) {
@@ -147,7 +148,7 @@ void write_file(ext2_filsys &fs, const string &output_path, const string &filena
             ssize_t bytes_read = pread(fd, buffer, to_read, record.addr[i] + pos_in_extent);
             if (bytes_read <= 0) {
                 perror("pread");
-                break;  // optionally: return or throw
+                break;  
             }
     
             out.write(buffer, bytes_read);
@@ -158,9 +159,10 @@ void write_file(ext2_filsys &fs, const string &output_path, const string &filena
     
         ++i;
     }
-    
-
-
+    close(fd);
+    out.close();
+    delete[] record.addr;
+    delete[] record.len;
 }
 
 const string extract_filename(const string &path) {

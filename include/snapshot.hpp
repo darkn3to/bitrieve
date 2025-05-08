@@ -83,5 +83,8 @@ inline void create_snapshot(ext2_filsys &fs, string path, unsigned int depth, co
     snapshot.close();
     inode_names.close();
 
+    cout << GREEN << "Snapshot created successfully.\n"
+         << RESET;
+
     return;
 }

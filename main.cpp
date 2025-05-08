@@ -1,6 +1,7 @@
 #include <string>
 #include "snapshot.hpp"
 #include "recover.hpp"
+#include "delete.hpp"
 
 void list_deleted_files(ext2_filsys fs);
 
@@ -9,7 +10,7 @@ int main(int argc, char** argv) {
         cerr << "Sufficient parameters not found. \nUsage:\n"
              << "  ./bitrieve create  -dev <device> -p <path> -d <depth>\n"
              << "  ./bitrieve recover -dev <device> -p <path> -o <output_path>\n"
-             << "  ./bitrieve ls      -dev <device>\n";
+             << "  ./bitrieve delete  -dev <device> -p <path> \n";
         return 1;
     }
 
@@ -68,8 +69,8 @@ int main(int argc, char** argv) {
         }
         recover(path, fs, output, device);
     } 
-    else if (command == "ls") {
-        //list_deleted_files(fs);
+    else if (command == "delete") {
+        delete_file(path, fs, device);
     } 
     else {
         cerr << "Unknown command: " << command << "\n";

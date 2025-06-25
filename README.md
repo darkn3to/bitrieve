@@ -18,11 +18,18 @@ Bitrieve works in two primary phases: snapshot creation and file recovery.<br>Du
 1. Run the `make` command after cloning and opening the repository.
 2. For snapshot creation:
    ```cmd
-   sudo ./bitrieve create -dev /dev/sdaX -p <input_directory> -d <depth_parameter>
+   sudo ./bitrieve create -dev /dev/sdaX -p <input_directory_path> -d <depth_parameter>
    ```
    For recovering file:
    ```cmd
-   sudo ./bitrieve recover -dev /dev/sdaX -p <input_file_path> 
+   sudo ./bitrieve recover -dev /dev/sdaX -p <input_file_path> -o <output_directory_path>
    ```
-   The `-dev` argument is used to specify the device. T
+   For deleting a file:
+   ```cmd
+   sudo ./bitrieve delete -dev /dev/sdaX -p <input_file_path>
+   ```
+   The `-dev` argument is used to specify the device. <br>The `p` argument specifies the path to the target file or directory and the `depth` argument determines how many levels (sub-directories) Bitrieve should cover while taking the snapshot of the fs.
+
+## Future Scope
+In its current form, Bitrieve supports snapshot-based recovery of individual files, but future enhancements aim to expand both functionality and coverage. One major extension is adding support for backing up and recovering entire directories, enabling users to preserve and restore complete folder structures rather than just individual files. Additionally, the secure deletion feature can be made more robust by incorporating manipulation of temporary memory areas such as swap space and other volatile storage regions, ensuring sensitive data is purged more comprehensively. There is also significant scope for improving partial file recovery—while currently disabled to avoid returning incomplete results, future versions could implement smarter heuristics to recover whatever file fragments are still intact, optionally marking or flagging partially reconstructed files for user awareness. These additions would greatly improve Bitrieve’s effectiveness and make it more resilient in real-world scenarios where perfect recovery is not always possible.
   
